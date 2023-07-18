@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::fs::File;
+use std::{fs::File, path::PathBuf};
 use zip::ZipArchive;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -30,7 +30,7 @@ pub struct Library {
 }
 
 impl Library {
-	pub async fn load(path: String) -> Result<Self, String> {
+	pub async fn load(path: PathBuf) -> Result<Self, String> {
 		if let Ok(b) = tokio::fs::read(&path).await {
 			return serde_json::from_slice(&b).map_err(|err| {
 				let msg = "Unable to parse JSON file";

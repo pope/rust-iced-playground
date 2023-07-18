@@ -1,7 +1,11 @@
+use std::env;
+use std::path::PathBuf;
+
 use crate::library::Library;
 use clap::Parser;
-use iced::widget::{column, text};
+use iced::widget::{button, column, text};
 use iced::{Alignment, Application, Command, Element, Settings, Theme};
+use native_dialog::FileDialog;
 
 pub mod library;
 
@@ -10,11 +14,17 @@ fn main() -> iced::Result {
 	App::run(Settings::with_flags(flags))
 }
 
+fn default_library_path() -> PathBuf {
+	let mut path = env::current_dir().expect("Should have a current directory");
+	path.push("library.json");
+	path
+}
+
 #[derive(Debug, Parser)]
 struct Flags {
 	/// The location of the library file.
-	#[arg(short, long, default_value_t = String::from("./library.json"))]
-	library_file: String,
+	#[arg(short, long, default_value = default_library_path().into_os_string())]
+	library_file: PathBuf,
 }
 
 #[derive(Debug, Clone)]
@@ -26,13 +36,14 @@ enum AppState {
 
 #[derive(Debug)]
 struct App {
-	_library_file: String,
+	_library_file: PathBuf,
 	state: AppState,
 }
 
 #[derive(Debug, Clone)]
 enum Message {
 	Loaded(Result<Library, String>),
+	AddBook,
 }
 
 impl Application for App {
@@ -73,6 +84,16 @@ impl Application for App {
 				self.state = AppState::Errored(e);
 				Command::none()
 			}
+			Message::AddBook => {
+				println!("Add book");
+				let path = FileDialog::new()
+					.set_location("~/Desktop")
+					.add_filter("Book", &["cbz"])
+					.show_open_single_file()
+					.unwrap();
+				println!("path {:?}", path);
+				Command::none()
+			}
 		}
 	}
 
@@ -85,9 +106,12 @@ impl Application for App {
 			// Interestingly enough, the emoji doesn't print on the screen
 			AppState::Errored(e) => format!("⚠️  {e}"),
 		};
-		column![text(message).size(50)]
-			.padding(50)
-			.align_items(Alignment::Center)
-			.into()
+		column![
+			text(message).size(50),
+			button("Add book").on_press(Message::AddBook)
+		]
+		.padding(50)
+		.align_items(Alignment::Center)
+		.into()
 	}
 }
