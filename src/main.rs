@@ -38,7 +38,7 @@ struct Flags {
 enum AppState {
 	Loading,
 	Library,
-	AddBook { id: Uuid },
+	EditBook { id: Uuid },
 	Errored(String),
 }
 
@@ -51,10 +51,12 @@ struct App {
 
 #[derive(Debug, Clone)]
 enum Message {
-	Loaded(Result<Library, String>),
-	FindBook,
-	BookTitleChanged { id: Uuid, title: String },
 	BookAuthorChanged { id: Uuid, author: String },
+	BookTitleChanged { id: Uuid, title: String },
+	ImportSingleBook,
+	ImportMultipleBooks,
+	Loaded(Result<Library, String>),
+	ReturnToLibrary,
 }
 
 impl Application for App {
@@ -81,7 +83,7 @@ impl Application for App {
 		let subtitle = match &self.state {
 			AppState::Loading => "Loading",
 			AppState::Library => "Library",
-			AppState::AddBook { .. } => "Add Book",
+			AppState::EditBook { .. } => "Add Book",
 			AppState::Errored(_) => "Ooops",
 		};
 		format!("{subtitle} - My App")
@@ -98,16 +100,27 @@ impl Application for App {
 				self.state = AppState::Errored(e);
 				Command::none()
 			}
-			Message::FindBook => {
+			Message::ImportSingleBook => {
 				let path = FileDialog::new()
 					.set_location("~/Desktop")
 					.add_filter("Book", &["cbz"])
 					.show_open_single_file()
 					.unwrap();
 				if let Some(path) = path {
-					let id = self.library.add_book(path);
-					self.state = AppState::AddBook { id };
+					let id = self.library.add_book(&path);
+					self.state = AppState::EditBook { id };
 				}
+				Command::none()
+			}
+			Message::ImportMultipleBooks => {
+				let paths = FileDialog::new()
+					.set_location("~/Desktop")
+					.add_filter("Books", &["cbz"])
+					.show_open_multiple_file()
+					.unwrap();
+				paths.iter().for_each(|p| {
+					self.library.add_book(p);
+				});
 				Command::none()
 			}
 			Message::BookTitleChanged { id, title } => {
@@ -122,15 +135,18 @@ impl Application for App {
 				}
 				Command::none()
 			}
+			Message::ReturnToLibrary => {
+				self.state = AppState::Library;
+				Command::none()
+			}
 		}
 	}
 
-	// fn view(&self) -> Element<Self::Message> {
 	fn view(&self) -> Element<'_, Self::Message, Renderer<Self::Theme>> {
 		match &self.state {
 			AppState::Loading => Self::loading(),
 			AppState::Library => Self::library(&self.library),
-			AppState::AddBook { id } => Self::add_book(
+			AppState::EditBook { id } => Self::edit_book(
 				self.library
 					.get_book(id)
 					.expect("Should have found book by ID"),
@@ -155,10 +171,17 @@ impl<'a> App {
 		Self::container("Library")
 			.push(text(msg))
 			.push(vertical_space(Length::Fill))
-			.push(button("Add book").on_press(Message::FindBook))
+			.push(
+				row![
+					button("Add book").on_press(Message::ImportSingleBook),
+					button("Quick Import")
+						.on_press(Message::ImportMultipleBooks)
+				]
+				.spacing(20),
+			)
 	}
 
-	fn add_book(book: &'a Book) -> Column<'a, Message> {
+	fn edit_book(book: &'a Book) -> Column<'a, Message> {
 		let label_size = 100;
 		Self::container("Add book")
 			.push(text(book.get_path_str().to_string()))
@@ -197,6 +220,8 @@ impl<'a> App {
 				]
 				.spacing(20),
 			)
+			.push(vertical_space(Length::Fill))
+			.push(button("Back").on_press(Message::ReturnToLibrary))
 	}
 
 	fn errored(e: &'a str) -> Column<'a, Message> {

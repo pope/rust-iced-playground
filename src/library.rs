@@ -1,6 +1,10 @@
 use iced::widget::image;
 use serde::{Deserialize, Serialize};
-use std::{fs::File, io::Read, path::PathBuf};
+use std::{
+	fs::File,
+	io::Read,
+	path::{Path, PathBuf},
+};
 use uuid::Uuid;
 use zip::ZipArchive;
 
@@ -16,11 +20,11 @@ pub struct Book {
 }
 
 impl Book {
-	fn new(path: PathBuf) -> Self {
+	fn new(path: &Path) -> Self {
 		Self {
 			id: Uuid::new_v4(),
 			author: None,
-			path,
+			path: path.to_path_buf(),
 			tags: Vec::new(),
 			title: None,
 			// cover: Vec::new(),
@@ -56,8 +60,8 @@ impl Book {
 	}
 
 	pub fn load_image(&self) -> Result<image::Handle, String> {
-		let zipfile = File::open(self.get_path_str())
-			.map_err(|_| "Failed to read cbz file")?;
+		let zipfile =
+			File::open(&self.path).map_err(|_| "Failed to read cbz file")?;
 		let mut archive = ZipArchive::new(zipfile)
 			.map_err(|_| "Unable to process cbz file")?;
 
@@ -118,7 +122,7 @@ impl Library {
 		&self.books
 	}
 
-	pub fn add_book(&mut self, path: PathBuf) -> Uuid {
+	pub fn add_book(&mut self, path: &Path) -> Uuid {
 		let b = Book::new(path);
 		let id = b.id;
 		self.books.push(b);
