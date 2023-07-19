@@ -5,10 +5,11 @@ use crate::library::Library;
 use clap::Parser;
 use iced::widget::{
 	button, column, container, image, row, text, text_input, vertical_space,
-	Column,
+	Column, Row,
 };
 use iced::{
-	Alignment, Application, Command, Element, Length, Renderer, Settings, Theme,
+	event, subscription, window, Alignment, Application, Command, Element,
+	Event, Length, Renderer, Settings, Subscription, Theme,
 };
 use library::Book;
 use native_dialog::FileDialog;
@@ -16,9 +17,18 @@ use uuid::Uuid;
 
 pub mod library;
 
+const INIT_WIN_HEIGHT: u32 = 768;
+const INIT_WIN_WIDTH: u32 = 1024;
+
 fn main() -> iced::Result {
 	let flags = Flags::parse();
-	App::run(Settings::with_flags(flags))
+	App::run(Settings {
+		window: window::Settings {
+			size: (INIT_WIN_WIDTH, INIT_WIN_HEIGHT),
+			..window::Settings::default()
+		},
+		..Settings::with_flags(flags)
+	})
 }
 
 fn default_library_path() -> PathBuf {
@@ -47,6 +57,8 @@ struct App {
 	library: Library,
 	_library_file: PathBuf,
 	state: AppState,
+	win_height: u32,
+	win_width: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -57,6 +69,7 @@ enum Message {
 	ImportMultipleBooks,
 	Loaded(Result<Library, String>),
 	ReturnToLibrary,
+	WindowResized { height: u32, width: u32 },
 }
 
 impl Application for App {
@@ -71,6 +84,8 @@ impl Application for App {
 				library: Library::default(),
 				_library_file: flags.library_file.clone(),
 				state: AppState::Loading,
+				win_height: INIT_WIN_HEIGHT,
+				win_width: INIT_WIN_WIDTH,
 			},
 			Command::perform(
 				Library::load(flags.library_file),
@@ -139,13 +154,28 @@ impl Application for App {
 				self.state = AppState::Library;
 				Command::none()
 			}
+			Message::WindowResized { height, width } => {
+				self.win_height = height;
+				self.win_width = width;
+				Command::none()
+			}
 		}
+	}
+
+	fn subscription(&self) -> Subscription<Self::Message> {
+		subscription::events_with(|event, status| match (event, status) {
+			(
+				Event::Window(window::Event::Resized { width, height }),
+				event::Status::Ignored,
+			) => Some(Message::WindowResized { height, width }),
+			_ => None,
+		})
 	}
 
 	fn view(&self) -> Element<'_, Self::Message, Renderer<Self::Theme>> {
 		match &self.state {
 			AppState::Loading => Self::loading(),
-			AppState::Library => Self::library(&self.library),
+			AppState::Library => Self::library(&self.library, self.win_width),
 			AppState::EditBook { id } => Self::edit_book(
 				self.library
 					.get_book(id)
@@ -166,10 +196,23 @@ impl<'a> App {
 		Self::container("Loading").push("Loading")
 	}
 
-	fn library(lib: &'a Library) -> Column<'a, Message> {
+	fn library(lib: &'a Library, win_width: u32) -> Column<'a, Message> {
+		const BOOK_WIDTH: u16 = 200;
 		let msg = format!("Got it: {}", lib.get_books().len());
-		Self::container("Library")
-			.push(text(msg))
+
+		let mut container = Self::container("Library")
+			.push(text(msg));
+
+		let chunk_size = (win_width % BOOK_WIDTH as u32).max(1) as usize;
+		for chunk in lib.get_books().chunks(chunk_size) {
+			let mut row: Row<'a, Message> = row!();
+			for b in chunk {
+				row = row.push(b.get_title());
+			}
+			container = container.push(row);
+		}
+
+		container
 			.push(vertical_space(Length::Fill))
 			.push(
 				row![
