@@ -197,31 +197,27 @@ impl<'a> App {
 	}
 
 	fn library(lib: &'a Library, win_width: u32) -> Column<'a, Message> {
-		const BOOK_WIDTH: u16 = 200;
+		const BOOK_WIDTH: u16 = 250;
 		let msg = format!("Got it: {}", lib.get_books().len());
 
-		let mut container = Self::container("Library")
-			.push(text(msg));
+		let mut container = Self::container("Library").push(text(msg));
 
-		let chunk_size = (win_width % BOOK_WIDTH as u32).max(1) as usize;
+		let chunk_size = (win_width / BOOK_WIDTH as u32).max(1) as usize;
 		for chunk in lib.get_books().chunks(chunk_size) {
 			let mut row: Row<'a, Message> = row!();
 			for b in chunk {
-				row = row.push(b.get_title());
+				row = row.push(text(b.get_title()).width(Length::Fill));
 			}
 			container = container.push(row);
 		}
 
-		container
-			.push(vertical_space(Length::Fill))
-			.push(
-				row![
-					button("Add book").on_press(Message::ImportSingleBook),
-					button("Quick Import")
-						.on_press(Message::ImportMultipleBooks)
-				]
-				.spacing(20),
-			)
+		container.push(vertical_space(Length::Fill)).push(
+			row![
+				button("Add book").on_press(Message::ImportSingleBook),
+				button("Quick Import").on_press(Message::ImportMultipleBooks)
+			]
+			.spacing(20),
+		)
 	}
 
 	fn edit_book(book: &'a Book) -> Column<'a, Message> {
