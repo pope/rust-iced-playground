@@ -260,7 +260,7 @@ impl<'a> App {
 	fn library_view(&self) -> Column<'a, Message> {
 		const BOOK_WIDTH: u16 = 200;
 
-		let mut col = column![].spacing(20);
+		let mut col = column![].spacing(20).padding([0, 20, 0, 0]);
 		let chunk_size = (self.win_width / BOOK_WIDTH as u32).max(1) as usize;
 		for chunk in self.library.get_books().chunks(chunk_size) {
 			let mut row: Row<'a, Message> = row!().spacing(20);
