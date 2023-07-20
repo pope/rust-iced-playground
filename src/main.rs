@@ -9,8 +9,8 @@ use iced::widget::{
 	text_input, vertical_space, Column, Row,
 };
 use iced::{
-	event, subscription, window, Alignment, Application, Command, Element,
-	Event, Length, Renderer, Settings, Subscription, Theme,
+	event, subscription, theme, window, Alignment, Application, Color, Command,
+	Element, Event, Length, Renderer, Settings, Subscription, Theme,
 };
 use native_dialog::FileDialog;
 use uuid::Uuid;
@@ -97,6 +97,17 @@ impl Application for App {
 				Message::Loaded,
 			),
 		)
+	}
+
+	fn theme(&self) -> Self::Theme {
+		Theme::custom(theme::Palette {
+			background: Color::from_rgb8(0x21, 0x21, 0x21),
+			text: Color::from_rgb8(0xFF, 0xFF, 0xFF),
+			// primary: Color::from_rgb8(0xFF, 0x40, 0x81),
+			primary: Color::from_rgb8(0xC2, 0x18, 0x5B),
+			success: Color::from_rgb8(0x00, 0xBC, 0xD4),
+			danger: Color::from_rgb8(0xFF, 0xC1, 0x07),
+		})
 	}
 
 	fn title(&self) -> String {
