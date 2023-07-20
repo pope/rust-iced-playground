@@ -62,41 +62,6 @@ impl Book {
 	pub fn set_author(&mut self, author: String) {
 		self.author = Some(author);
 	}
-
-	pub async fn load_cover_image(&self) -> Result<image::Handle, String> {
-		let zipfile =
-			File::open(&self.path).map_err(|_| "Failed to read cbz file")?;
-		let mut archive = ZipArchive::new(zipfile)
-			.map_err(|_| "Unable to process cbz file")?;
-
-		let first = archive
-			.file_names()
-			.filter(|f| {
-				f.ends_with(".jpeg")
-					|| f.ends_with(".jpg")
-					|| f.ends_with(".png")
-			})
-			.reduce(|res, f| if f < res { f } else { res })
-			.ok_or("Unable to find an image in the cbz file")?
-			.to_owned();
-
-		let mut img_file = archive.by_name(&first).unwrap();
-		let mut b = Vec::new();
-		img_file
-			.read_to_end(&mut b)
-			.map_err(|_| "Unable to read bytes")?;
-
-		let img = ::image::load_from_memory(&b)
-			.map_err(|_| "Unable to processes image")?;
-		let img = img.resize(250, 350, ::image::imageops::FilterType::Triangle);
-
-		Ok(image::Handle::from_pixels(
-			img.width(),
-			img.height(),
-			img.into_rgba8().to_vec(),
-		))
-		// Ok(image::Handle::from_memory(b))
-	}
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -183,11 +148,9 @@ pub async fn load_cover_image(path: PathBuf) -> Result<image::Handle, String> {
 	let img = ::image::load_from_memory(&b)
 		.map_err(|_| "Unable to processes image")?;
 	let img = img.resize(250, 350, ::image::imageops::FilterType::Triangle);
-
 	Ok(image::Handle::from_pixels(
 		img.width(),
 		img.height(),
 		img.into_rgba8().to_vec(),
 	))
-	// Ok(image::Handle::from_memory(b))
 }
