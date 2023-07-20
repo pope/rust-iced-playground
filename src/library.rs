@@ -81,9 +81,18 @@ impl Library {
 		}
 
 		let lib = Self::default();
-		let json = lib.to_json_bytes()?;
-		save_library_json(json, path).await?;
+		lib.clone().save(path).await?;
 		Ok(lib)
+	}
+
+	pub async fn save(self, path: PathBuf) -> Result<(), String> {
+		let json = self.to_json_bytes()?;
+		tokio::fs::write(&path, &json).await.map_err(|err| {
+			let msg = "Unable to save library file";
+			eprintln!("{msg}: {err}");
+			msg.to_owned()
+		})?;
+		Ok(())
 	}
 
 	pub fn to_json_bytes(&self) -> Result<Vec<u8>, String> {
@@ -119,20 +128,6 @@ impl Default for Library {
 		Self {
 			version: "1.0".to_owned(),
 			books: Vec::new(),
-		}
-	}
-}
-
-pub async fn save_library_json(
-	b: Vec<u8>,
-	path: PathBuf,
-) -> Result<(), String> {
-	match tokio::fs::write(&path, &b).await {
-		Ok(_) => Ok(()),
-		Err(err) => {
-			let msg = "Unable to save library file";
-			eprintln!("{msg}: {err}");
-			Err(msg.to_owned())
 		}
 	}
 }

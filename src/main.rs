@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
 
-use crate::library::{load_cover_image, save_library_json, Book, Library};
+use crate::library::{load_cover_image, Book, Library};
 use clap::Parser;
 use iced::widget::{
 	button, column, container, horizontal_space, image, row, scrollable, text,
@@ -205,19 +205,10 @@ impl Application for App {
 				self.state = AppState::Library;
 				Command::none()
 			}
-			Message::SaveLibrary => {
-				let path = self.library_file.clone();
-				match self.library.to_json_bytes() {
-					Ok(json) => Command::perform(
-						save_library_json(json, path),
-						Message::SaveLibraryComplete,
-					),
-					Err(e) => {
-						self.state = AppState::Errored(e);
-						Command::none()
-					}
-				}
-			}
+			Message::SaveLibrary => Command::perform(
+				self.library.clone().save(self.library_file.clone()),
+				Message::SaveLibraryComplete,
+			),
 			Message::SaveLibraryComplete(Ok(_)) => {
 				println!("Library saved");
 				Command::none()
