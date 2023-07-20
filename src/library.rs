@@ -16,7 +16,7 @@ pub struct Book {
 	tags: Vec<String>,
 	title: Option<String>,
 	// #[serde(skip)]
-	// cover: Vec<u8>,
+	// cover: Option<image::Handle>,
 }
 
 impl Book {
@@ -27,7 +27,7 @@ impl Book {
 			path: path.to_path_buf(),
 			tags: Vec::new(),
 			title: None,
-			// cover: Vec::new(),
+			// cover: None,
 		}
 	}
 
@@ -37,6 +37,10 @@ impl Book {
 
 	pub fn get_path_str(&self) -> &str {
 		self.path.to_str().unwrap_or_default()
+	}
+
+	pub fn get_path(&self) -> PathBuf {
+		self.path.clone()
 	}
 
 	pub fn get_title(&self) -> &str {
@@ -59,7 +63,7 @@ impl Book {
 		self.author = Some(author);
 	}
 
-	pub fn load_image(&self) -> Result<image::Handle, String> {
+	pub async fn load_cover_image(&self) -> Result<image::Handle, String> {
 		let zipfile =
 			File::open(&self.path).map_err(|_| "Failed to read cbz file")?;
 		let mut archive = ZipArchive::new(zipfile)
@@ -82,7 +86,16 @@ impl Book {
 			.read_to_end(&mut b)
 			.map_err(|_| "Unable to read bytes")?;
 
-		Ok(image::Handle::from_memory(b))
+		let img = ::image::load_from_memory(&b)
+			.map_err(|_| "Unable to processes image")?;
+		let img = img.resize(250, 350, ::image::imageops::FilterType::Triangle);
+
+		Ok(image::Handle::from_pixels(
+			img.width(),
+			img.height(),
+			img.into_rgba8().to_vec(),
+		))
+		// Ok(image::Handle::from_memory(b))
 	}
 }
 
@@ -145,4 +158,36 @@ impl Default for Library {
 			books: Vec::new(),
 		}
 	}
+}
+
+pub async fn load_cover_image(path: PathBuf) -> Result<image::Handle, String> {
+	let zipfile = File::open(path).map_err(|_| "Failed to read cbz file")?;
+	let mut archive =
+		ZipArchive::new(zipfile).map_err(|_| "Unable to process cbz file")?;
+
+	let first = archive
+		.file_names()
+		.filter(|f| {
+			f.ends_with(".jpeg") || f.ends_with(".jpg") || f.ends_with(".png")
+		})
+		.reduce(|res, f| if f < res { f } else { res })
+		.ok_or("Unable to find an image in the cbz file")?
+		.to_owned();
+
+	let mut img_file = archive.by_name(&first).unwrap();
+	let mut b = Vec::new();
+	img_file
+		.read_to_end(&mut b)
+		.map_err(|_| "Unable to read bytes")?;
+
+	let img = ::image::load_from_memory(&b)
+		.map_err(|_| "Unable to processes image")?;
+	let img = img.resize(250, 350, ::image::imageops::FilterType::Triangle);
+
+	Ok(image::Handle::from_pixels(
+		img.width(),
+		img.height(),
+		img.into_rgba8().to_vec(),
+	))
+	// Ok(image::Handle::from_memory(b))
 }

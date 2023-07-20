@@ -1688,6 +1688,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "iced",
+ "image",
  "native-dialog",
  "serde",
  "serde_json",
