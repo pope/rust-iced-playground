@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
 
-use crate::library::Library;
+use crate::library::{load_cover_image, save_library_json, Book, Library};
 use clap::Parser;
 use iced::widget::{
 	button, column, container, horizontal_space, image, row, scrollable, text,
@@ -12,7 +12,6 @@ use iced::{
 	event, subscription, window, Alignment, Application, Command, Element,
 	Event, Length, Renderer, Settings, Subscription, Theme,
 };
-use library::{load_cover_image, Book};
 use native_dialog::FileDialog;
 use uuid::Uuid;
 
@@ -57,7 +56,7 @@ enum AppState {
 struct App {
 	image_cache: HashMap<Uuid, image::Handle>,
 	library: Library,
-	_library_file: PathBuf,
+	library_file: PathBuf,
 	state: AppState,
 	win_height: u32,
 	win_width: u32,
@@ -72,6 +71,8 @@ enum Message {
 	Loaded(Result<Library, String>),
 	ImageLoaded(Uuid, Result<image::Handle, String>),
 	ReturnToLibrary,
+	SaveLibrary,
+	SaveLibraryComplete(Result<(), String>),
 	WindowResized { height: u32, width: u32 },
 }
 
@@ -86,7 +87,7 @@ impl Application for App {
 			Self {
 				image_cache: HashMap::new(),
 				library: Library::default(),
-				_library_file: flags.library_file.clone(),
+				library_file: flags.library_file.clone(),
 				state: AppState::Loading,
 				win_height: INIT_WIN_HEIGHT,
 				win_width: INIT_WIN_WIDTH,
@@ -113,7 +114,15 @@ impl Application for App {
 			Message::Loaded(Ok(library)) => {
 				self.library = library;
 				self.state = AppState::Library;
-				Command::none()
+
+				let commands = self.library.get_books().iter().map(|b| {
+					let path = b.get_path();
+					let id = b.get_id();
+					Command::perform(load_cover_image(path), move |res| {
+						Message::ImageLoaded(id, res)
+					})
+				});
+				Command::batch(commands)
 			}
 			Message::Loaded(Err(e)) => {
 				self.state = AppState::Errored(e);
@@ -183,6 +192,27 @@ impl Application for App {
 			}
 			Message::ReturnToLibrary => {
 				self.state = AppState::Library;
+				Command::none()
+			}
+			Message::SaveLibrary => {
+				let path = self.library_file.clone();
+				match self.library.to_json_bytes() {
+					Ok(json) => Command::perform(
+						save_library_json(json, path),
+						Message::SaveLibraryComplete,
+					),
+					Err(e) => {
+						self.state = AppState::Errored(e);
+						Command::none()
+					}
+				}
+			}
+			Message::SaveLibraryComplete(Ok(_)) => {
+				println!("Library saved");
+				Command::none()
+			}
+			Message::SaveLibraryComplete(Err(e)) => {
+				self.state = AppState::Errored(e);
 				Command::none()
 			}
 			Message::WindowResized { height, width } => {
@@ -257,7 +287,9 @@ impl<'a> App {
 				row![
 					button("Add book").on_press(Message::ImportSingleBook),
 					button("Quick Import")
-						.on_press(Message::ImportMultipleBooks)
+						.on_press(Message::ImportMultipleBooks),
+					horizontal_space(Length::Fill),
+					button("Save").on_press(Message::SaveLibrary)
 				]
 				.spacing(20),
 			)

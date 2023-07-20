@@ -81,19 +81,17 @@ impl Library {
 		}
 
 		let lib = Self::default();
-		let b = serde_json::to_vec_pretty(&lib).map_err(|err| {
+		let json = lib.to_json_bytes()?;
+		save_library_json(json, path).await?;
+		Ok(lib)
+	}
+
+	pub fn to_json_bytes(&self) -> Result<Vec<u8>, String> {
+		serde_json::to_vec_pretty(self).map_err(|err| {
 			let msg = "Unable to serialize library";
 			eprintln!("{msg}: {err}");
-			msg
-		})?;
-		match tokio::fs::write(&path, &b).await {
-			Ok(_) => Ok(lib),
-			Err(err) => {
-				let msg = "Unable to save library file";
-				eprintln!("{msg}: {err}");
-				Err(msg.to_owned())
-			}
-		}
+			msg.into()
+		})
 	}
 
 	pub fn get_books(&self) -> &Vec<Book> {
@@ -121,6 +119,20 @@ impl Default for Library {
 		Self {
 			version: "1.0".to_owned(),
 			books: Vec::new(),
+		}
+	}
+}
+
+pub async fn save_library_json(
+	b: Vec<u8>,
+	path: PathBuf,
+) -> Result<(), String> {
+	match tokio::fs::write(&path, &b).await {
+		Ok(_) => Ok(()),
+		Err(err) => {
+			let msg = "Unable to save library file";
+			eprintln!("{msg}: {err}");
+			Err(msg.to_owned())
 		}
 	}
 }
