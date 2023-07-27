@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use crate::library::{load_cover_image, Book, Library};
+use crate::library::{load_cover_image, Library, RBook};
 use clap::Parser;
 use iced::widget::{
 	button, column, container, horizontal_space, image, row, scrollable, text,
@@ -48,7 +49,7 @@ struct Flags {
 enum AppState {
 	Loading,
 	Library,
-	EditBook { id: Uuid },
+	EditBook { book: RBook },
 	Errored(String),
 }
 
@@ -64,12 +65,12 @@ struct App {
 
 #[derive(Debug, Clone)]
 enum Message {
-	BookAuthorChanged { id: Uuid, author: String },
-	BookTitleChanged { id: Uuid, title: String },
+	BookAuthorChanged { book: RBook, author: String },
+	BookTitleChanged { book: RBook, title: String },
 	ImportSingleBook,
 	ImportMultipleBooks,
 	Loaded(Result<Library, String>),
-	ImageLoaded(Uuid, Result<image::Handle, String>),
+	ImageLoaded(RBook, Result<image::Handle, String>),
 	ReturnToLibrary,
 	SaveLibrary,
 	SaveLibraryComplete(Result<(), String>),
@@ -126,11 +127,14 @@ impl Application for App {
 				self.library = library;
 				self.state = AppState::Library;
 
-				let commands = self.library.get_books().iter().map(|b| {
-					let path = b.get_path();
-					let id = b.get_id();
+				let commands = self.library.get_books().iter().map(|book| {
+					let path = {
+						let book = book.lock().unwrap();
+						book.get_path()
+					};
+					let book = Arc::clone(book);
 					Command::perform(load_cover_image(path), move |res| {
-						Message::ImageLoaded(id, res)
+						Message::ImageLoaded(book, res)
 					})
 				});
 				Command::batch(commands)
@@ -139,11 +143,12 @@ impl Application for App {
 				self.state = AppState::Errored(e);
 				Command::none()
 			}
-			Message::ImageLoaded(id, Ok(img)) => {
+			Message::ImageLoaded(book, Ok(img)) => {
+				let id = { book.lock().unwrap().get_id() };
 				self.image_cache.insert(id, img);
 				Command::none()
 			}
-			Message::ImageLoaded(_id, Err(e)) => {
+			Message::ImageLoaded(_book, Err(e)) => {
 				self.state = AppState::Errored(e);
 				Command::none()
 			}
@@ -153,15 +158,19 @@ impl Application for App {
 					.show_open_single_file()
 					.unwrap();
 				if let Some(path) = path {
-					let id = self.library.add_book(&path);
-					self.state = AppState::EditBook { id };
+					let book = self.library.add_book(&path);
+					self.state = AppState::EditBook {
+						book: Arc::clone(&book),
+					};
 
+					let (id, path) = {
+						let book = book.lock().unwrap();
+						(book.get_id(), book.get_path())
+					};
 					if !self.image_cache.contains_key(&id) {
-						let path =
-							self.library.get_book(&id).unwrap().get_path();
 						return Command::perform(
 							load_cover_image(path),
-							move |res| Message::ImageLoaded(id, res),
+							move |res| Message::ImageLoaded(book, res),
 						);
 					}
 				}
@@ -172,33 +181,36 @@ impl Application for App {
 					.add_filter("Books", &["cbz"])
 					.show_open_multiple_file()
 					.unwrap();
-				let ids = paths
+				let books = paths
 					.iter()
 					.map(|p| self.library.add_book(p))
-					.filter(|id| !self.image_cache.contains_key(id))
-					.collect::<Vec<Uuid>>();
+					.filter(|b| {
+						!self
+							.image_cache
+							.contains_key(&b.lock().unwrap().get_id())
+					})
+					.collect::<Vec<RBook>>();
 
-				if ids.is_empty() {
+				if books.is_empty() {
 					return Command::none();
 				}
-				let commands = ids.into_iter().map(|id| {
-					let path = self.library.get_book(&id).unwrap().get_path();
+				let commands = books.into_iter().map(|book| {
+					let path = {
+						let book = book.lock().unwrap();
+						book.get_path()
+					};
 					Command::perform(load_cover_image(path), move |res| {
-						Message::ImageLoaded(id, res)
+						Message::ImageLoaded(book, res)
 					})
 				});
 				Command::batch(commands)
 			}
-			Message::BookTitleChanged { id, title } => {
-				if let Some(book) = self.library.get_book_mut(&id) {
-					book.set_title(title);
-				}
+			Message::BookTitleChanged { book, title } => {
+				book.lock().unwrap().set_title(title);
 				Command::none()
 			}
-			Message::BookAuthorChanged { id, author } => {
-				if let Some(book) = self.library.get_book_mut(&id) {
-					book.set_author(author);
-				}
+			Message::BookAuthorChanged { book, author } => {
+				book.lock().unwrap().set_author(author);
 				Command::none()
 			}
 			Message::ReturnToLibrary => {
@@ -239,11 +251,9 @@ impl Application for App {
 		match &self.state {
 			AppState::Loading => Self::loading_view(),
 			AppState::Library => self.library_view(),
-			AppState::EditBook { id } => self.edit_book_view(
-				self.library
-					.get_book(id)
-					.expect("Should have found book by ID"),
-			),
+			AppState::EditBook { book } => {
+				self.edit_book_view(Arc::clone(book))
+			}
 			AppState::Errored(e) => Self::errored_view(e),
 		}
 		.into()
@@ -267,12 +277,16 @@ impl<'a> App {
 		for chunk in self.library.get_books().chunks(chunk_size) {
 			let mut row: Row<'a, Message> = row!().spacing(20);
 			for b in chunk {
+				let title = {
+					let book = b.lock().unwrap();
+					book.get_title().to_string()
+				};
 				row = row.push(
 					column![
 						container(self.get_image_for_book(b).width(BOOK_WIDTH))
 							.center_x()
 							.width(BOOK_WIDTH),
-						text(b.get_title()).width(Length::Fill)
+						text(title).width(Length::Fill)
 					]
 					.width(Length::Fill),
 				);
@@ -297,36 +311,44 @@ impl<'a> App {
 			)
 	}
 
-	fn edit_book_view(&self, book: &'a Book) -> Column<'a, Message> {
+	fn edit_book_view(&self, book: RBook) -> Column<'a, Message> {
 		let label_size = 100;
+		let (author, path, title) = {
+			let book = book.lock().unwrap();
+			(
+				book.get_author().to_string(),
+				book.get_path_str().to_string(),
+				book.get_title().to_string(),
+			)
+		};
+		let a_book = Arc::clone(&book);
+		let t_book = Arc::clone(&book);
 		Self::container("Add book")
-			.push(text(book.get_path_str().to_string()))
+			.push(text(path))
 			.push(
 				row![
-					container(self.get_image_for_book(book).width(250))
+					container(self.get_image_for_book(&book).width(250))
 						.center_x(),
 					column![
 						row![
 							text("Title").width(label_size),
-							text_input("Enter a title...", book.get_title())
-								.on_input(|title| {
-									Message::BookTitleChanged {
-										id: book.get_id(),
-										title,
-									}
-								})
+							text_input("Enter a title...", &title).on_input(
+								move |title| {
+									let book = t_book.clone();
+									Message::BookTitleChanged { book, title }
+								}
+							)
 						]
 						.spacing(20)
 						.align_items(Alignment::Center),
 						row![
 							text("Author").width(label_size),
-							text_input("Enter an author...", book.get_author())
-								.on_input(|author| {
-									Message::BookAuthorChanged {
-										id: book.get_id(),
-										author,
-									}
-								})
+							text_input("Enter an author...", &author).on_input(
+								move |author| {
+									let book = a_book.clone();
+									Message::BookAuthorChanged { book, author }
+								}
+							)
 						]
 						.spacing(20)
 						.align_items(Alignment::Center),
@@ -343,9 +365,10 @@ impl<'a> App {
 		Self::container("Error").push(e)
 	}
 
-	fn get_image_for_book(&self, book: &Book) -> image::Image {
+	fn get_image_for_book(&self, book: &RBook) -> image::Image {
+		let id = { book.lock().unwrap().get_id() };
 		self.image_cache
-			.get(&book.get_id())
+			.get(&id)
 			.map(|i| image(i.clone()))
 			.unwrap_or_else(|| {
 				image(format!(

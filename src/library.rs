@@ -4,6 +4,7 @@ use std::{
 	fs::File,
 	io::Read,
 	path::{Path, PathBuf},
+	sync::{Arc, Mutex},
 };
 use uuid::Uuid;
 use zip::ZipArchive;
@@ -64,10 +65,12 @@ impl Book {
 	}
 }
 
+pub type RBook = Arc<Mutex<Book>>;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Library {
 	version: String,
-	books: Vec<Book>,
+	books: Vec<RBook>,
 }
 
 impl Library {
@@ -103,24 +106,27 @@ impl Library {
 		})
 	}
 
-	pub fn get_books(&self) -> &Vec<Book> {
+	pub fn get_books(&self) -> &Vec<RBook> {
 		&self.books
 	}
 
-	pub fn add_book(&mut self, path: &Path) -> Uuid {
-		let b = Book::new(path);
-		let id = b.id;
-		self.books.push(b);
-		id
+	pub fn add_book(&mut self, path: &Path) -> RBook {
+		let book = Arc::new(Mutex::new(Book::new(path)));
+		let res = Arc::clone(&book);
+		self.books.push(book);
+		res
 	}
 
-	pub fn get_book(&self, id: &Uuid) -> Option<&Book> {
-		self.books.iter().find(|b| b.id == *id)
+	pub fn get_book(&self, id: &Uuid) -> Option<RBook> {
+		self.books
+			.iter()
+			.find(|b| b.lock().unwrap().id == *id)
+			.map(Arc::clone)
 	}
 
-	pub fn get_book_mut(&mut self, id: &Uuid) -> Option<&mut Book> {
-		self.books.iter_mut().find(|b| b.id == *id)
-	}
+	// pub fn get_book_mut(&mut self, id: &Uuid) -> Option<&mut Book> {
+	// 	self.books.iter_mut().find(|b| b.id == *id)
+	// }
 }
 
 impl Default for Library {
