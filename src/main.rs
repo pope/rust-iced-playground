@@ -82,12 +82,12 @@ enum Message {
 	BookImagesLoaded(BookRef, Result<Vec<image::Handle>, String>),
 	BookTitleChanged(BookRef, String),
 	CoverImageLoaded(BookRef, Result<image::Handle, String>),
+	GoBack,
 	ImportMultipleBooks,
 	ImportSingleBook,
 	Loaded(Result<Library, String>),
 	OpenBookDetails(BookRef),
 	OpenBookViewer(BookRef),
-	ReturnToLibrary,
 	SaveLibrary,
 	SaveLibraryComplete(Result<(), String>),
 	WindowResized { height: u32, width: u32 },
@@ -193,6 +193,20 @@ impl Application for App {
 				self.state = AppState::Errored(e);
 				Command::none()
 			}
+			Message::GoBack => {
+				match &self.state {
+					AppState::BookDetails { .. } => {
+						self.state = AppState::Library;
+					}
+					AppState::Viewer { book, .. } => {
+						self.state = AppState::BookDetails {
+							book: Arc::clone(book),
+						};
+					}
+					_ => {}
+				};
+				Command::none()
+			}
 			Message::ImportMultipleBooks => {
 				let paths = FileDialog::new()
 					.add_filter("Books", &["cbz"])
@@ -281,10 +295,6 @@ impl Application for App {
 					Message::BookImagesLoaded(book, res)
 				})
 			}
-			Message::ReturnToLibrary => {
-				self.state = AppState::Library;
-				Command::none()
-			}
 			Message::SaveLibrary => Command::perform(
 				self.library.clone().save(self.library_file.clone()),
 				Message::SaveLibraryComplete,
@@ -319,6 +329,7 @@ impl Application for App {
 			) => match key_code {
 				keyboard::KeyCode::Left => Some(Message::AdvancePage(false)),
 				keyboard::KeyCode::Right => Some(Message::AdvancePage(true)),
+				keyboard::KeyCode::Escape => Some(Message::GoBack),
 				_ => None,
 			},
 			_ => None,
@@ -336,9 +347,9 @@ impl Application for App {
 			AppState::Errored(e) => Self::errored_view(e).into(),
 			AppState::Library => self.library_view().into(),
 			AppState::Loading => Self::loading_view().into(),
-			AppState::Viewer { book, cur, images } => {
+			AppState::Viewer { cur, images, .. } => {
 				let img = images.get(*cur);
-				self.viewer_view(Arc::clone(book), img).into()
+				self.viewer_view(img).into()
 			}
 		}
 	}
@@ -430,7 +441,7 @@ impl<'a> App {
 					.spacing(20),
 				)
 				.push(vertical_space(Length::Fill))
-				.push(button("Back").on_press(Message::ReturnToLibrary))
+				.push(button("Back").on_press(Message::GoBack))
 				.width(Length::Fill)
 		]
 	}
@@ -491,10 +502,8 @@ impl<'a> App {
 
 	fn viewer_view(
 		&self,
-		book: BookRef,
 		img: Option<&'a image::Handle>,
 	) -> Column<'a, Message> {
-		let back_msg = Message::OpenBookDetails(book);
 		column![
 			row![
 				button(
@@ -551,7 +560,7 @@ impl<'a> App {
 				.on_press(Message::AdvancePage(true)),
 			]
 			.height(Length::Fill),
-			button("Back").on_press(back_msg)
+			button("Back").on_press(Message::GoBack)
 		]
 		.spacing(20)
 		.padding(20)
