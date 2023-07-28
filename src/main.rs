@@ -77,15 +77,15 @@ struct App {
 
 #[derive(Debug, Clone)]
 enum Message {
-	BookAuthorChanged { book: BookRef, author: String },
+	BookAuthorChanged(BookRef, String),
 	BookImagesLoaded(BookRef, Result<Vec<image::Handle>, String>),
-	BookTitleChanged { book: BookRef, title: String },
+	BookTitleChanged(BookRef, String),
 	CoverImageLoaded(BookRef, Result<image::Handle, String>),
 	ImportMultipleBooks,
 	ImportSingleBook,
 	Loaded(Result<Library, String>),
-	OpenBookDetails { book: BookRef },
-	OpenBookViewer { book: BookRef },
+	OpenBookDetails(BookRef),
+	OpenBookViewer(BookRef),
 	ReturnToLibrary,
 	SaveLibrary,
 	SaveLibraryComplete(Result<(), String>),
@@ -144,7 +144,7 @@ impl Application for App {
 
 	fn update(&mut self, message: Self::Message) -> Command<Self::Message> {
 		match message {
-			Message::BookAuthorChanged { book, author } => {
+			Message::BookAuthorChanged(book, author) => {
 				book.write().unwrap().set_author(author);
 				Command::none()
 			}
@@ -165,7 +165,7 @@ impl Application for App {
 				self.state = AppState::Errored(e);
 				Command::none()
 			}
-			Message::BookTitleChanged { book, title } => {
+			Message::BookTitleChanged(book, title) => {
 				book.write().unwrap().set_title(title);
 				Command::none()
 			}
@@ -251,11 +251,11 @@ impl Application for App {
 				self.state = AppState::Errored(e);
 				Command::none()
 			}
-			Message::OpenBookDetails { book } => {
+			Message::OpenBookDetails(book) => {
 				self.state = AppState::BookDetails { book };
 				Command::none()
 			}
-			Message::OpenBookViewer { book } => {
+			Message::OpenBookViewer(book) => {
 				let path = book.read().unwrap().get_path();
 				self.state = AppState::Viewer {
 					book: Arc::clone(&book),
@@ -331,9 +331,7 @@ impl<'a> App {
 				let book = book.read().unwrap();
 				book.get_title().to_string()
 			};
-			let msg = Message::OpenBookDetails {
-				book: Arc::clone(book),
-			};
+			let msg = Message::OpenBookDetails(Arc::clone(book));
 			book_list = book_list.push(
 				button(
 					row![
@@ -375,9 +373,7 @@ impl<'a> App {
 							)
 							.center_x()
 						)
-						.on_press(Message::OpenBookViewer {
-							book: Arc::clone(&book)
-						})
+						.on_press(Message::OpenBookViewer(Arc::clone(&book)))
 						.style(theme::Button::Text),
 						column![
 							row![
@@ -385,10 +381,7 @@ impl<'a> App {
 								text_input("Enter a title...", &title)
 									.on_input(move |title| {
 										let book = t_book.clone();
-										Message::BookTitleChanged {
-											book,
-											title,
-										}
+										Message::BookTitleChanged(book, title)
 									})
 							]
 							.spacing(20)
@@ -398,10 +391,7 @@ impl<'a> App {
 								text_input("Enter an author...", &author)
 									.on_input(move |author| {
 										let book = a_book.clone();
-										Message::BookAuthorChanged {
-											book,
-											author,
-										}
+										Message::BookAuthorChanged(book, author)
 									})
 							]
 							.spacing(20)
@@ -436,9 +426,7 @@ impl<'a> App {
 					let book = b.read().unwrap();
 					book.get_title().to_string()
 				};
-				let msg = Message::OpenBookDetails {
-					book: Arc::clone(b),
-				};
+				let msg = Message::OpenBookDetails(Arc::clone(b));
 				row = row.push(
 					button(column![
 						container(self.get_image_for_book(b).width(BOOK_WIDTH))
@@ -481,7 +469,7 @@ impl<'a> App {
 		book: BookRef,
 		img: Option<&'a image::Handle>,
 	) -> Column<'a, Message> {
-		let back_msg = Message::OpenBookDetails { book };
+		let back_msg = Message::OpenBookDetails(book);
 		column![
 			container(
 				img.map(|img| image(img.clone()))
