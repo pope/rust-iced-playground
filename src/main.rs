@@ -47,10 +47,11 @@ struct Flags {
 
 #[derive(Debug, Clone)]
 enum AppState {
-	Loading,
-	Library,
+	BookDetails { book: BookRef },
 	EditBook { book: BookRef },
 	Errored(String),
+	Library,
+	Loading,
 }
 
 #[derive(Debug)]
@@ -67,10 +68,11 @@ struct App {
 enum Message {
 	BookAuthorChanged { book: BookRef, author: String },
 	BookTitleChanged { book: BookRef, title: String },
-	ImportSingleBook,
-	ImportMultipleBooks,
-	Loaded(Result<Library, String>),
 	ImageLoaded(BookRef, Result<image::Handle, String>),
+	ImportMultipleBooks,
+	ImportSingleBook,
+	Loaded(Result<Library, String>),
+	OpenBookDetails { book: BookRef },
 	ReturnToLibrary,
 	SaveLibrary,
 	SaveLibraryComplete(Result<(), String>),
@@ -113,34 +115,25 @@ impl Application for App {
 
 	fn title(&self) -> String {
 		let subtitle = match &self.state {
-			AppState::Loading => "Loading",
-			AppState::Library => "Library",
-			AppState::EditBook { .. } => "Add Book",
-			AppState::Errored(_) => "Ooops",
+			AppState::BookDetails { book } => {
+				book.read().unwrap().get_title().to_string()
+			}
+			AppState::EditBook { .. } => "Add Book".into(),
+			AppState::Errored(_) => "Ooops".into(),
+			AppState::Library => "Library".into(),
+			AppState::Loading => "Loading".into(),
 		};
 		format!("{subtitle} - My App")
 	}
 
 	fn update(&mut self, message: Self::Message) -> Command<Self::Message> {
 		match message {
-			Message::Loaded(Ok(library)) => {
-				self.library = library;
-				self.state = AppState::Library;
-
-				let commands = self.library.get_books().iter().map(|book| {
-					let path = {
-						let book = book.read().unwrap();
-						book.get_path()
-					};
-					let book = Arc::clone(book);
-					Command::perform(load_cover_image(path), move |res| {
-						Message::ImageLoaded(book, res)
-					})
-				});
-				Command::batch(commands)
+			Message::BookAuthorChanged { book, author } => {
+				book.write().unwrap().set_author(author);
+				Command::none()
 			}
-			Message::Loaded(Err(e)) => {
-				self.state = AppState::Errored(e);
+			Message::BookTitleChanged { book, title } => {
+				book.write().unwrap().set_title(title);
 				Command::none()
 			}
 			Message::ImageLoaded(book, Ok(img)) => {
@@ -150,30 +143,6 @@ impl Application for App {
 			}
 			Message::ImageLoaded(_book, Err(e)) => {
 				self.state = AppState::Errored(e);
-				Command::none()
-			}
-			Message::ImportSingleBook => {
-				let path = FileDialog::new()
-					.add_filter("Book", &["cbz"])
-					.show_open_single_file()
-					.unwrap();
-				if let Some(path) = path {
-					let book = self.library.add_book(&path);
-					self.state = AppState::EditBook {
-						book: Arc::clone(&book),
-					};
-
-					let (id, path) = {
-						let book = book.read().unwrap();
-						(book.get_id(), book.get_path())
-					};
-					if !self.image_cache.contains_key(&id) {
-						return Command::perform(
-							load_cover_image(path),
-							move |res| Message::ImageLoaded(book, res),
-						);
-					}
-				}
 				Command::none()
 			}
 			Message::ImportMultipleBooks => {
@@ -205,12 +174,52 @@ impl Application for App {
 				});
 				Command::batch(commands)
 			}
-			Message::BookTitleChanged { book, title } => {
-				book.write().unwrap().set_title(title);
+			Message::ImportSingleBook => {
+				let path = FileDialog::new()
+					.add_filter("Book", &["cbz"])
+					.show_open_single_file()
+					.unwrap();
+				if let Some(path) = path {
+					let book = self.library.add_book(&path);
+					self.state = AppState::EditBook {
+						book: Arc::clone(&book),
+					};
+
+					let (id, path) = {
+						let book = book.read().unwrap();
+						(book.get_id(), book.get_path())
+					};
+					if !self.image_cache.contains_key(&id) {
+						return Command::perform(
+							load_cover_image(path),
+							move |res| Message::ImageLoaded(book, res),
+						);
+					}
+				}
 				Command::none()
 			}
-			Message::BookAuthorChanged { book, author } => {
-				book.write().unwrap().set_author(author);
+			Message::Loaded(Ok(library)) => {
+				self.library = library;
+				self.state = AppState::Library;
+
+				let commands = self.library.get_books().iter().map(|book| {
+					let path = {
+						let book = book.read().unwrap();
+						book.get_path()
+					};
+					let book = Arc::clone(book);
+					Command::perform(load_cover_image(path), move |res| {
+						Message::ImageLoaded(book, res)
+					})
+				});
+				Command::batch(commands)
+			}
+			Message::Loaded(Err(e)) => {
+				self.state = AppState::Errored(e);
+				Command::none()
+			}
+			Message::OpenBookDetails { book } => {
+				self.state = AppState::BookDetails { book };
 				Command::none()
 			}
 			Message::ReturnToLibrary => {
@@ -249,12 +258,15 @@ impl Application for App {
 
 	fn view(&self) -> Element<'_, Self::Message, Renderer<Self::Theme>> {
 		match &self.state {
-			AppState::Loading => Self::loading_view(),
-			AppState::Library => self.library_view(),
+			AppState::BookDetails { book } => {
+				Self::book_details_view(Arc::clone(book))
+			}
 			AppState::EditBook { book } => {
 				self.edit_book_view(Arc::clone(book))
 			}
 			AppState::Errored(e) => Self::errored_view(e),
+			AppState::Library => self.library_view(),
+			AppState::Loading => Self::loading_view(),
 		}
 		.into()
 	}
@@ -263,6 +275,13 @@ impl Application for App {
 impl<'a> App {
 	fn container(title: &str) -> Column<'a, Message> {
 		column![text(title).size(50)].spacing(20).padding(20)
+	}
+
+	fn book_details_view(book: BookRef) -> Column<'a, Message> {
+		Self::container("Book Details")
+			.push(text(book.read().unwrap().get_title().to_string()))
+			.push(vertical_space(Length::Fill))
+			.push(button("Back").on_press(Message::ReturnToLibrary))
 	}
 
 	fn loading_view() -> Column<'a, Message> {
@@ -281,13 +300,19 @@ impl<'a> App {
 					let book = b.read().unwrap();
 					book.get_title().to_string()
 				};
+				let msg = Message::OpenBookDetails {
+					book: Arc::clone(b),
+				};
 				row = row.push(
-					column![
+					button(column![
 						container(self.get_image_for_book(b).width(BOOK_WIDTH))
 							.center_x()
 							.width(BOOK_WIDTH),
 						text(title).width(Length::Fill)
-					]
+					])
+					.padding(0)
+					.on_press(msg)
+					.style(theme::Button::Text)
 					.width(Length::Fill),
 				);
 			}
