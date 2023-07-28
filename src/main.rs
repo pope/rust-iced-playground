@@ -7,8 +7,8 @@ use crate::library::{load_cover_image, load_images, BookRef, Library};
 use clap::Parser;
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{
-	button, column, container, horizontal_space, image, row, scrollable, text,
-	text_input, vertical_space, Column, Row,
+	button, column, container, horizontal_space, image, row, scrollable, svg,
+	text, text_input, vertical_space, Column, Row,
 };
 use iced::{
 	event, subscription, theme, window, Alignment, Application, Color, Command,
@@ -488,9 +488,25 @@ impl<'a> App {
 		column![
 			row![
 				button(
-					text("back")
-						.vertical_alignment(Vertical::Center)
-						.horizontal_alignment(Horizontal::Left)
+					container(
+						svg(svg::Handle::from_path(format!(
+							"{}/images/nav_before.svg",
+							env!("CARGO_MANIFEST_DIR")
+						)))
+						.style(theme::Svg::custom_fn(|theme| {
+							svg::Appearance {
+								color: Some(theme.palette().text),
+							}
+						}))
+						.width(48)
+						.height(48)
+					)
+					.width(Length::Fill)
+					.height(Length::Fill)
+					.center_x()
+					.center_y()
+					.align_x(Horizontal::Left)
+					.align_y(Vertical::Center)
 				)
 				.style(theme::Button::Text)
 				.width(Length::Fill)
@@ -504,9 +520,25 @@ impl<'a> App {
 					})
 					.content_fit(ContentFit::ScaleDown),
 				button(
-					text("next")
-						.vertical_alignment(Vertical::Center)
-						.horizontal_alignment(Horizontal::Right)
+					container(
+						svg(svg::Handle::from_path(format!(
+							"{}/images/nav_next.svg",
+							env!("CARGO_MANIFEST_DIR")
+						)))
+						.style(theme::Svg::custom_fn(|theme| {
+							svg::Appearance {
+								color: Some(theme.palette().text),
+							}
+						}))
+						.width(48)
+						.height(48)
+					)
+					.width(Length::Fill)
+					.height(Length::Fill)
+					.center_x()
+					.center_y()
+					.align_x(Horizontal::Right)
+					.align_y(Vertical::Center)
 				)
 				.style(theme::Button::Text)
 				.width(Length::Fill)
