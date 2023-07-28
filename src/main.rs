@@ -11,9 +11,9 @@ use iced::widget::{
 	text, text_input, vertical_space, Column, Row,
 };
 use iced::{
-	event, subscription, theme, window, Alignment, Application, Color, Command,
-	ContentFit, Element, Event, Length, Renderer, Settings, Subscription,
-	Theme,
+	event, keyboard, subscription, theme, window, Alignment, Application,
+	Color, Command, ContentFit, Element, Event, Length, Renderer, Settings,
+	Subscription, Theme,
 };
 use native_dialog::FileDialog;
 use uuid::Uuid;
@@ -311,6 +311,16 @@ impl Application for App {
 				Event::Window(window::Event::Resized { width, height }),
 				event::Status::Ignored,
 			) => Some(Message::WindowResized { height, width }),
+			(
+				Event::Keyboard(keyboard::Event::KeyPressed {
+					key_code, ..
+				}),
+				event::Status::Ignored,
+			) => match key_code {
+				keyboard::KeyCode::Left => Some(Message::AdvancePage(false)),
+				keyboard::KeyCode::Right => Some(Message::AdvancePage(true)),
+				_ => None,
+			},
 			_ => None,
 		})
 	}
@@ -503,8 +513,6 @@ impl<'a> App {
 					)
 					.width(Length::Fill)
 					.height(Length::Fill)
-					.center_x()
-					.center_y()
 					.align_x(Horizontal::Left)
 					.align_y(Vertical::Center)
 				)
@@ -535,8 +543,6 @@ impl<'a> App {
 					)
 					.width(Length::Fill)
 					.height(Length::Fill)
-					.center_x()
-					.center_y()
 					.align_x(Horizontal::Right)
 					.align_y(Vertical::Center)
 				)
