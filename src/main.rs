@@ -3,15 +3,17 @@ use std::env;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::library::{load_cover_image, BookRef, Library};
+use crate::library::{load_cover_image, load_images, BookRef, Library};
 use clap::Parser;
+use iced::alignment::{Horizontal, Vertical};
 use iced::widget::{
 	button, column, container, horizontal_space, image, row, scrollable, text,
 	text_input, vertical_space, Column, Row,
 };
 use iced::{
 	event, subscription, theme, window, Alignment, Application, Color, Command,
-	Element, Event, Length, Renderer, Settings, Subscription, Theme,
+	ContentFit, Element, Event, Length, Renderer, Settings, Subscription,
+	Theme,
 };
 use native_dialog::FileDialog;
 use uuid::Uuid;
@@ -47,11 +49,20 @@ struct Flags {
 
 #[derive(Debug, Clone)]
 enum AppState {
-	BookDetails { book: BookRef },
-	EditBook { book: BookRef },
+	BookDetails {
+		book: BookRef,
+	},
+	EditBook {
+		book: BookRef,
+	},
 	Errored(String),
 	Library,
 	Loading,
+	Viewer {
+		book: BookRef,
+		cur: usize,
+		images: Vec<image::Handle>,
+	},
 }
 
 #[derive(Debug)]
@@ -67,12 +78,14 @@ struct App {
 #[derive(Debug, Clone)]
 enum Message {
 	BookAuthorChanged { book: BookRef, author: String },
+	BookImagesLoaded(BookRef, Result<Vec<image::Handle>, String>),
 	BookTitleChanged { book: BookRef, title: String },
-	ImageLoaded(BookRef, Result<image::Handle, String>),
+	CoverImageLoaded(BookRef, Result<image::Handle, String>),
 	ImportMultipleBooks,
 	ImportSingleBook,
 	Loaded(Result<Library, String>),
 	OpenBookDetails { book: BookRef },
+	OpenBookViewer { book: BookRef },
 	ReturnToLibrary,
 	SaveLibrary,
 	SaveLibraryComplete(Result<(), String>),
@@ -122,6 +135,9 @@ impl Application for App {
 			AppState::Errored(_) => "Ooops".into(),
 			AppState::Library => "Library".into(),
 			AppState::Loading => "Loading".into(),
+			AppState::Viewer { book, .. } => {
+				book.read().unwrap().get_title().to_string()
+			}
 		};
 		format!("{subtitle} - My App")
 	}
@@ -132,16 +148,33 @@ impl Application for App {
 				book.write().unwrap().set_author(author);
 				Command::none()
 			}
+			Message::BookImagesLoaded(book, Ok(images)) => match &self.state {
+				AppState::Viewer {
+					book: current_book, ..
+				} if *current_book.read().unwrap() == *book.read().unwrap() => {
+					self.state = AppState::Viewer {
+						book,
+						cur: 0,
+						images,
+					};
+					Command::none()
+				}
+				_ => Command::none(),
+			},
+			Message::BookImagesLoaded(_book, Err(e)) => {
+				self.state = AppState::Errored(e);
+				Command::none()
+			}
 			Message::BookTitleChanged { book, title } => {
 				book.write().unwrap().set_title(title);
 				Command::none()
 			}
-			Message::ImageLoaded(book, Ok(img)) => {
+			Message::CoverImageLoaded(book, Ok(img)) => {
 				let id = { book.read().unwrap().get_id() };
 				self.image_cache.insert(id, img);
 				Command::none()
 			}
-			Message::ImageLoaded(_book, Err(e)) => {
+			Message::CoverImageLoaded(_book, Err(e)) => {
 				self.state = AppState::Errored(e);
 				Command::none()
 			}
@@ -169,7 +202,7 @@ impl Application for App {
 						book.get_path()
 					};
 					Command::perform(load_cover_image(path), move |res| {
-						Message::ImageLoaded(book, res)
+						Message::CoverImageLoaded(book, res)
 					})
 				});
 				Command::batch(commands)
@@ -192,7 +225,7 @@ impl Application for App {
 					if !self.image_cache.contains_key(&id) {
 						return Command::perform(
 							load_cover_image(path),
-							move |res| Message::ImageLoaded(book, res),
+							move |res| Message::CoverImageLoaded(book, res),
 						);
 					}
 				}
@@ -209,7 +242,7 @@ impl Application for App {
 					};
 					let book = Arc::clone(book);
 					Command::perform(load_cover_image(path), move |res| {
-						Message::ImageLoaded(book, res)
+						Message::CoverImageLoaded(book, res)
 					})
 				});
 				Command::batch(commands)
@@ -221,6 +254,17 @@ impl Application for App {
 			Message::OpenBookDetails { book } => {
 				self.state = AppState::BookDetails { book };
 				Command::none()
+			}
+			Message::OpenBookViewer { book } => {
+				let path = book.read().unwrap().get_path();
+				self.state = AppState::Viewer {
+					book: Arc::clone(&book),
+					cur: 0,
+					images: Vec::new(),
+				};
+				Command::perform(load_images(path), move |res| {
+					Message::BookImagesLoaded(book, res)
+				})
 			}
 			Message::ReturnToLibrary => {
 				self.state = AppState::Library;
@@ -267,6 +311,10 @@ impl Application for App {
 			AppState::Errored(e) => Self::errored_view(e).into(),
 			AppState::Library => self.library_view().into(),
 			AppState::Loading => Self::loading_view().into(),
+			AppState::Viewer { book, cur, images } => {
+				let img = images.get(*cur);
+				self.viewer_view(Arc::clone(book), img).into()
+			}
 		}
 	}
 }
@@ -327,8 +375,9 @@ impl<'a> App {
 							)
 							.center_x()
 						)
-						// TODO(pope): Change this to a book view
-						.on_press(Message::ReturnToLibrary)
+						.on_press(Message::OpenBookViewer {
+							book: Arc::clone(&book)
+						})
 						.style(theme::Button::Text),
 						column![
 							row![
@@ -425,6 +474,36 @@ impl<'a> App {
 
 	fn errored_view(e: &'a str) -> Column<'a, Message> {
 		Self::container("Error").push(e)
+	}
+
+	fn viewer_view(
+		&self,
+		book: BookRef,
+		img: Option<&'a image::Handle>,
+	) -> Column<'a, Message> {
+		let back_msg = Message::OpenBookDetails { book };
+		column![
+			container(
+				img.map(|img| image(img.clone()))
+					.unwrap_or_else(|| {
+						image(format!(
+							"{}/images/waiting.png",
+							env!("CARGO_MANIFEST_DIR")
+						))
+					})
+					.content_fit(ContentFit::ScaleDown)
+					.height(Length::Fill)
+			)
+			.center_x()
+			.center_y()
+			.align_x(Horizontal::Center)
+			.align_y(Vertical::Center)
+			.height(Length::Fill),
+			button("Back").on_press(back_msg)
+		]
+		.spacing(20)
+		.padding(20)
+		.width(Length::Fill)
 	}
 
 	fn get_image_for_book(&self, book: &BookRef) -> image::Image {
