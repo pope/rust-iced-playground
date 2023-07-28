@@ -259,16 +259,15 @@ impl Application for App {
 	fn view(&self) -> Element<'_, Self::Message, Renderer<Self::Theme>> {
 		match &self.state {
 			AppState::BookDetails { book } => {
-				Self::book_details_view(Arc::clone(book))
+				self.book_details_view(Arc::clone(book)).into()
 			}
 			AppState::EditBook { book } => {
-				self.edit_book_view(Arc::clone(book))
+				self.book_details_view(Arc::clone(book)).into()
 			}
-			AppState::Errored(e) => Self::errored_view(e),
-			AppState::Library => self.library_view(),
-			AppState::Loading => Self::loading_view(),
+			AppState::Errored(e) => Self::errored_view(e).into(),
+			AppState::Library => self.library_view().into(),
+			AppState::Loading => Self::loading_view().into(),
 		}
-		.into()
 	}
 }
 
@@ -277,11 +276,99 @@ impl<'a> App {
 		column![text(title).size(50)].spacing(20).padding(20)
 	}
 
-	fn book_details_view(book: BookRef) -> Column<'a, Message> {
-		Self::container("Book Details")
-			.push(text(book.read().unwrap().get_title().to_string()))
-			.push(vertical_space(Length::Fill))
-			.push(button("Back").on_press(Message::ReturnToLibrary))
+	fn book_details_view(&self, book: BookRef) -> Row<'a, Message> {
+		let mut book_list = column![].spacing(10).padding([0, 20, 0, 0]);
+		for book in self.library.get_books() {
+			let title = {
+				let book = book.read().unwrap();
+				book.get_title().to_string()
+			};
+			let msg = Message::OpenBookDetails {
+				book: Arc::clone(book),
+			};
+			book_list = book_list.push(
+				button(
+					row![
+						container(self.get_image_for_book(book).width(50))
+							.center_x()
+							.width(50),
+						text(title).size(16).width(Length::Fill)
+					]
+					.align_items(Alignment::Center)
+					.spacing(6)
+					.padding(0),
+				)
+				.padding(0)
+				.on_press(msg)
+				.style(theme::Button::Text)
+				.width(Length::Fill),
+			);
+		}
+
+		let label_size = 100;
+		let (author, path, title) = {
+			let book = book.read().unwrap();
+			(
+				book.get_author().to_string(),
+				book.get_path_str().to_string(),
+				book.get_title().to_string(),
+			)
+		};
+		let a_book = Arc::clone(&book);
+		let t_book = Arc::clone(&book);
+		row![
+			scrollable(book_list).width(250),
+			Self::container("Book details")
+				.push(
+					row![
+						button(
+							container(
+								self.get_image_for_book(&book).width(200)
+							)
+							.center_x()
+						)
+						// TODO(pope): Change this to a book view
+						.on_press(Message::ReturnToLibrary)
+						.style(theme::Button::Text),
+						column![
+							row![
+								text("Title").width(label_size),
+								text_input("Enter a title...", &title)
+									.on_input(move |title| {
+										let book = t_book.clone();
+										Message::BookTitleChanged {
+											book,
+											title,
+										}
+									})
+							]
+							.spacing(20)
+							.align_items(Alignment::Center),
+							row![
+								text("Author").width(label_size),
+								text_input("Enter an author...", &author)
+									.on_input(move |author| {
+										let book = a_book.clone();
+										Message::BookAuthorChanged {
+											book,
+											author,
+										}
+									})
+							]
+							.spacing(20)
+							.align_items(Alignment::Center),
+							row![text("Path").width(label_size), text(path)]
+								.spacing(20)
+								.align_items(Alignment::Center)
+						]
+						.spacing(20),
+					]
+					.spacing(20),
+				)
+				.push(vertical_space(Length::Fill))
+				.push(button("Back").on_press(Message::ReturnToLibrary))
+				.width(Length::Fill)
+		]
 	}
 
 	fn loading_view() -> Column<'a, Message> {
@@ -334,56 +421,6 @@ impl<'a> App {
 				]
 				.spacing(20),
 			)
-	}
-
-	fn edit_book_view(&self, book: BookRef) -> Column<'a, Message> {
-		let label_size = 100;
-		let (author, path, title) = {
-			let book = book.read().unwrap();
-			(
-				book.get_author().to_string(),
-				book.get_path_str().to_string(),
-				book.get_title().to_string(),
-			)
-		};
-		let a_book = Arc::clone(&book);
-		let t_book = Arc::clone(&book);
-		Self::container("Add book")
-			.push(text(path))
-			.push(
-				row![
-					container(self.get_image_for_book(&book).width(250))
-						.center_x(),
-					column![
-						row![
-							text("Title").width(label_size),
-							text_input("Enter a title...", &title).on_input(
-								move |title| {
-									let book = t_book.clone();
-									Message::BookTitleChanged { book, title }
-								}
-							)
-						]
-						.spacing(20)
-						.align_items(Alignment::Center),
-						row![
-							text("Author").width(label_size),
-							text_input("Enter an author...", &author).on_input(
-								move |author| {
-									let book = a_book.clone();
-									Message::BookAuthorChanged { book, author }
-								}
-							)
-						]
-						.spacing(20)
-						.align_items(Alignment::Center),
-					]
-					.spacing(20),
-				]
-				.spacing(20),
-			)
-			.push(vertical_space(Length::Fill))
-			.push(button("Back").on_press(Message::ReturnToLibrary))
 	}
 
 	fn errored_view(e: &'a str) -> Column<'a, Message> {
