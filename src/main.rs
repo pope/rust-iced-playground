@@ -77,6 +77,7 @@ struct App {
 
 #[derive(Debug, Clone)]
 enum Message {
+	AdvancePage(bool),
 	BookAuthorChanged(BookRef, String),
 	BookImagesLoaded(BookRef, Result<Vec<image::Handle>, String>),
 	BookTitleChanged(BookRef, String),
@@ -144,23 +145,37 @@ impl Application for App {
 
 	fn update(&mut self, message: Self::Message) -> Command<Self::Message> {
 		match message {
-			Message::BookAuthorChanged(book, author) => {
-				book.write().unwrap().set_author(author);
-				Command::none()
-			}
-			Message::BookImagesLoaded(book, Ok(images)) => match &self.state {
-				AppState::Viewer {
-					book: current_book, ..
-				} if *current_book.read().unwrap() == *book.read().unwrap() => {
-					self.state = AppState::Viewer {
-						book,
-						cur: 0,
-						images,
-					};
+			Message::AdvancePage(go_forward) => match &mut self.state {
+				AppState::Viewer { cur, images, .. } => {
+					if !go_forward && *cur > 0 {
+						*cur -= 1;
+					} else if go_forward && *cur < images.len() - 1 {
+						*cur += 1;
+					}
 					Command::none()
 				}
 				_ => Command::none(),
 			},
+			Message::BookAuthorChanged(book, author) => {
+				book.write().unwrap().set_author(author);
+				Command::none()
+			}
+			Message::BookImagesLoaded(book, Ok(images)) => {
+				match &mut self.state {
+					AppState::Viewer {
+						book: current_book,
+						cur,
+						images: current_images,
+					} if *current_book.read().unwrap()
+						== *book.read().unwrap() =>
+					{
+						*cur = 0;
+						*current_images = images;
+						Command::none()
+					}
+					_ => Command::none(),
+				}
+			}
 			Message::BookImagesLoaded(_book, Err(e)) => {
 				self.state = AppState::Errored(e);
 				Command::none()
@@ -471,7 +486,15 @@ impl<'a> App {
 	) -> Column<'a, Message> {
 		let back_msg = Message::OpenBookDetails(book);
 		column![
-			container(
+			row![
+				button(
+					text("back")
+						.vertical_alignment(Vertical::Center)
+						.horizontal_alignment(Horizontal::Left)
+				)
+				.style(theme::Button::Text)
+				.width(Length::Fill)
+				.on_press(Message::AdvancePage(false)),
 				img.map(|img| image(img.clone()))
 					.unwrap_or_else(|| {
 						image(format!(
@@ -479,13 +502,16 @@ impl<'a> App {
 							env!("CARGO_MANIFEST_DIR")
 						))
 					})
-					.content_fit(ContentFit::ScaleDown)
-					.height(Length::Fill)
-			)
-			.center_x()
-			.center_y()
-			.align_x(Horizontal::Center)
-			.align_y(Vertical::Center)
+					.content_fit(ContentFit::ScaleDown),
+				button(
+					text("next")
+						.vertical_alignment(Vertical::Center)
+						.horizontal_alignment(Horizontal::Right)
+				)
+				.style(theme::Button::Text)
+				.width(Length::Fill)
+				.on_press(Message::AdvancePage(true)),
+			]
 			.height(Length::Fill),
 			button("Back").on_press(back_msg)
 		]
