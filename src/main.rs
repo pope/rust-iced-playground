@@ -567,7 +567,10 @@ impl<'a> App {
 		.width(Length::Fill)
 	}
 
-	fn get_image_for_book(&self, book: &BookRef) -> image::Image {
+	fn get_image_for_book(
+		&self,
+		book: &BookRef,
+	) -> image::Image<image::Handle> {
 		let id = { book.read().unwrap().get_id() };
 		self.image_cache
 			.get(&id)
