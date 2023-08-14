@@ -141,9 +141,7 @@ pub async fn load_cover_image(path: PathBuf) -> Result<image::Handle, String> {
 
 	let first = archive
 		.file_names()
-		.filter(|f| {
-			f.ends_with(".jpeg") || f.ends_with(".jpg") || f.ends_with(".png")
-		})
+		.filter(supported_images_filter)
 		.reduce(|res, f| if f < res { f } else { res })
 		.ok_or("Unable to find an image in the cbz file")?
 		.to_owned();
@@ -166,32 +164,72 @@ pub async fn load_cover_image(path: PathBuf) -> Result<image::Handle, String> {
 	))
 }
 
-pub async fn load_images(path: PathBuf) -> Result<Vec<image::Handle>, String> {
+pub struct BookImageContext {
+	archive: ZipArchive<File>,
+	filenames: Vec<String>,
+}
+
+impl BookImageContext {
+	fn new(archive: ZipArchive<File>, filenames: Vec<String>) -> Self {
+		Self { archive, filenames }
+	}
+
+	pub fn len(&self) -> usize {
+		self.filenames.len()
+	}
+
+	pub fn is_empty(&self) -> bool {
+		self.filenames.is_empty()
+	}
+}
+
+async fn get_book_image_context(
+	path: PathBuf,
+) -> Result<BookImageContext, String> {
 	let zipfile = File::open(path).map_err(|_| "Failed to read cbz file")?;
-	let mut archive =
+	let archive =
 		ZipArchive::new(zipfile).map_err(|_| "Unable to process cbz file")?;
 
 	let mut names = archive
 		.file_names()
-		.filter(|f| {
-			f.ends_with(".jpeg") || f.ends_with(".jpg") || f.ends_with(".png")
-		})
+		.filter(supported_images_filter)
 		.map(|str| str.to_string())
 		.collect::<Vec<String>>();
 	names.sort();
 
-	let images = names
-		.iter()
-		.filter_map(|name| {
-			let mut img_file =
-				archive.by_name(name).expect("File name already checked");
-			let mut b = Vec::new();
-			match img_file.read_to_end(&mut b) {
-				Ok(_) => Some(image::Handle::from_memory(b)),
-				Err(_) => {
-					eprintln!("Unable to read bytes");
-					None
-				}
+	Ok(BookImageContext::new(archive, names))
+}
+
+fn load_image(
+	context: &mut BookImageContext,
+	index: usize,
+) -> Result<image::Handle, String> {
+	let filename = context
+		.filenames
+		.get(index)
+		.ok_or("Selected image not found")?;
+
+	let mut img_file = context
+		.archive
+		.by_name(filename)
+		.expect("First file should be present");
+	let mut b = Vec::new();
+	img_file
+		.read_to_end(&mut b)
+		.map_err(|_| "Unable to read bytes")?;
+
+	Ok(image::Handle::from_memory(b))
+}
+
+pub async fn load_images(path: PathBuf) -> Result<Vec<image::Handle>, String> {
+	let mut context = get_book_image_context(path).await?;
+
+	let images = (0..context.len())
+		.filter_map(|index| match load_image(&mut context, index) {
+			Ok(img) => Some(img),
+			Err(e) => {
+				eprintln!("{}", e);
+				None
 			}
 		})
 		.collect::<Vec<image::Handle>>();
@@ -200,4 +238,16 @@ pub async fn load_images(path: PathBuf) -> Result<Vec<image::Handle>, String> {
 		return Err("No images loaded".to_owned());
 	}
 	Ok(images)
+}
+
+fn supported_images_filter(filename: &&str) -> bool {
+	let path = Path::new(filename);
+	path.file_name()
+		.map(|f| f.to_string_lossy().to_lowercase())
+		.map_or(false, |f| {
+			!f.starts_with('.')
+				&& (f.ends_with(".png")
+					|| f.ends_with(".jpg")
+					|| f.ends_with(".jpeg"))
+		})
 }
